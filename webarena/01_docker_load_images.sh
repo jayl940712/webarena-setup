@@ -16,12 +16,24 @@ load_docker_image() {
   local IMAGE_NAME="$1"
   local INPUT_FILE="$2"
 
-  if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${IMAGE_NAME}:"; then
-    echo "Loading Docker image ${IMAGE_NAME} from ${INPUT_FILE}"
-    docker load --input "${INPUT_FILE}"
-  else
+  if docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${IMAGE_NAME}:"; then
     echo "Docker image ${IMAGE_NAME} is already loaded."
+    return
   fi
+
+  echo "Importing Docker image ${IMAGE_NAME} from ${INPUT_FILE}"
+
+  # Bypass `docker load`, which stalls on huge Moby v1 archives when the
+  # containerd snapshotter is enabled. Import straight into containerd's
+  # `moby` namespace — the same store dockerd reads from.
+  case "${INPUT_FILE}" in
+    *.tar.gz|*.tgz)
+      gunzip -c "${INPUT_FILE}" | sudo ctr -n moby image import --all-platforms -
+      ;;
+    *)
+      sudo ctr -n moby image import --all-platforms "${INPUT_FILE}"
+      ;;
+  esac
 }
 
 # make sure all required files are here

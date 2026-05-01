@@ -1,6 +1,7 @@
 #!/bin/bash
 
-PUBLIC_HOSTNAME=$(curl -s ifconfig.me)
+PUBLIC_HOSTNAME=$(hostname -I | awk '{print $1}')
+echo "PUBLIC HOSTNAME: $PUBLIC_HOSTNAME"
 #PUBLIC_HOSTNAME="YOUR_HOSTNAME_HERE"
 
 # Original webarena ports
@@ -31,4 +32,4 @@ MAP_URL="http://${PUBLIC_HOSTNAME}:${MAP_PORT}"
 #  - openstreetmap-website.tar.gz
 #  - wikipedia_en_all_maxi_2022-05.zim
 
-ARCHIVES_LOCATION="./"
+ARCHIVES_LOCATION="/webarena/webarena_setup_files/"
