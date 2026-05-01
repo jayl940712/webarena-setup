@@ -67,7 +67,7 @@ WIKIPEDIA_ARCHIVE=wikipedia_en_all_maxi_2022-05.zim
 if [ ! -f ./wiki/${WIKIPEDIA_ARCHIVE} ]; then
   echo "Moving wikipedia archive..."
   mkdir -p ./wiki
-  cp ${ARCHIVES_LOCATION}/${WIKIPEDIA_ARCHIVE} ./wiki
+  mv ${ARCHIVES_LOCATION}/${WIKIPEDIA_ARCHIVE} ./wiki
 else
   echo "Wikipedia archive already present."
 fi
