@@ -1,7 +1,16 @@
+echo "$(date): Applying tile server fix"
+touch /dockerroot/volumes/_data/planet-import-complete
+chown -R 999:999 /dockerroot/volumes/_data/postgres 2>/dev/null || true
+chmod 644 /dockerroot/volumes/_data/planet-import-complete
+
+echo "$(date): Applying Nominatim ownership fix"
+chown -R 101:102 /dockerroot/volumes/nominatim-data/_data
+chmod 700 /dockerroot/volumes/nominatim-data/_data
+
 echo "$(date): Starting tile server"
 docker run --name tile --restart unless-stopped \
   --memory=2g --memory-swap=4g \
-  --volume=osm-data:/data/database/ \
+  --volume=/dockerroot/volumes/_data:/data/database/ \
   --volume=osm-tiles:/data/tiles/ \
   -p 8080:80 \
   -d overv/openstreetmap-tile-server run
