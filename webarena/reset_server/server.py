@@ -51,9 +51,12 @@ def initiate_reset():
         except subprocess.CalledProcessError as e:
             logger.info("Reset failed :(")
             write_fail_message(str(e))
-
-        # Release lock (remove lock file)
-        pathlib.Path(lock_file_path).unlink(missing_ok=True)
+        except Exception as e:
+            logger.exception("Reset failed unexpectedly :(")
+            write_fail_message(str(e))
+        finally:
+            # Always release the lock so future reset attempts are not stuck.
+            pathlib.Path(lock_file_path).unlink(missing_ok=True)
 
     thread = threading.Thread(target=reset_fun)
     thread.start()
@@ -74,8 +77,8 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(f'Reset initiated, check status <a href="/status">here</a>'.encode())
                 else:
-                    logger.warning("Reset already running, ignoring request.")
-                    self.send_response(418)  # I'm a teapot
+                    logger.warning("Reset already running.")
+                    self.send_response(202)  # Accepted
                     self.send_header('Content-type', 'text/html')
                     self.end_headers()
                     self.wfile.write(f'Reset already running, check status <a href="/status">here</a>'.encode())
