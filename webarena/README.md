@@ -74,7 +74,6 @@ Expose the reset server only on the management network or to a specific automati
 ```bash
 export RESET_PORT=7777
 export RESET_BIND_HOST="<management-interface-ip>"
-export RESET_ALLOWED_SOURCES="<management-cidr-or-host-cidr>"
 export RESET_TOKEN_FILE="/etc/webarena/reset_token"
 export RESET_TLS_CERT="/etc/webarena/reset.crt"
 export RESET_TLS_KEY="/etc/webarena/reset.key"
@@ -86,7 +85,7 @@ Then run the reset server in a side tmux or screen terminal:
 sudo bash 07_serve_reset.sh
 ```
 
-The reset server listens with HTTPS, requires `Authorization: Bearer <token>`, and rejects clients outside `RESET_ALLOWED_SOURCES`. Keep TCP/${RESET_PORT} restricted in the external ACL or security group to the same management CIDR or authorized automation host; do not expose it to public client networks.
+The reset server listens with HTTPS and requires `Authorization: Bearer <token>`. Keep TCP/${RESET_PORT} restricted in the external ACL or security group to trusted management hosts; do not expose it to public client networks.
 
 Then you can trigger a full instance reset with `sudo -E bash reset.sh`, which calls `https://${RESET_HOST}:${RESET_PORT}/reset` and checks status with `https://${RESET_HOST}:${RESET_PORT}/status`.
 

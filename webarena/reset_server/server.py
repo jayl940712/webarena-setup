@@ -1,7 +1,6 @@
 import argparse
 import hmac
 import http.server
-import ipaddress
 import logging
 import os
 import pathlib
@@ -22,7 +21,6 @@ logger.addHandler(handler)
 lock_file_path = "reset.lock"
 fail_file_path = "fail_message"
 reset_token = ""
-allowed_sources = []
 
 
 def load_secret(path: str) -> str:
@@ -32,21 +30,6 @@ def load_secret(path: str) -> str:
         raise ValueError(f"Secret file {path} is empty")
     return secret
 
-
-def parse_allowed_sources(raw_sources: str):
-    sources = []
-    for raw_source in raw_sources.split(','):
-        raw_source = raw_source.strip()
-        if raw_source:
-            sources.append(ipaddress.ip_network(raw_source, strict=False))
-    if not sources:
-        raise ValueError("At least one allowed source CIDR is required")
-    return sources
-
-
-def client_allowed(client_ip: str) -> bool:
-    ip_address = ipaddress.ip_address(client_ip)
-    return any(ip_address in network for network in allowed_sources)
 
 def write_fail_message(message: str):
     with open(fail_file_path, 'w') as f:
@@ -103,11 +86,6 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 
     def request_authorized(self) -> bool:
         client_ip = self.client_address[0]
-        if not client_allowed(client_ip):
-            logger.warning(f"Rejected request from non-management source {client_ip}")
-            self.send_text_response(403, "Forbidden")
-            return False
-
         expected_header = f"Bearer {reset_token}"
         received_header = self.headers.get('Authorization', '')
         if not hmac.compare_digest(received_header, expected_header):
@@ -156,13 +134,11 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 parser = argparse.ArgumentParser(description='Start a simple HTTP server to execute a reset script.')
 parser.add_argument('--host', default='127.0.0.1', help='Host address the server will bind to')
 parser.add_argument('--port', type=int, required=True, help='Port number the server will listen to')
-parser.add_argument('--allowed-sources', required=True, help='Comma-separated management source CIDRs allowed to call reset endpoints')
 parser.add_argument('--token-file', required=True, help='File containing the bearer token required for reset endpoints')
 parser.add_argument('--certfile', required=True, help='TLS certificate file for the reset server')
 parser.add_argument('--keyfile', required=True, help='TLS private key file for the reset server')
 args = parser.parse_args()
 reset_token = load_secret(args.token_file)
-allowed_sources = parse_allowed_sources(args.allowed_sources)
 
 # Clear fail and lock files
 write_fail_message("")
@@ -176,7 +152,7 @@ with http.server.ThreadingHTTPServer((args.host, args.port), CustomHandler) as h
     tls_context.load_cert_chain(certfile=args.certfile, keyfile=args.keyfile)
     httpd.socket = tls_context.wrap_socket(httpd.socket, server_side=True)
 
-    logger.info(f'Serving HTTPS reset endpoint on {args.host}:{args.port} for {args.allowed_sources}...')
+    logger.info(f'Serving HTTPS reset endpoint on {args.host}:{args.port}...')
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
