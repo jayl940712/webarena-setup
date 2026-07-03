@@ -1,12 +1,15 @@
 import argparse
+import hmac
 import http.server
+import ipaddress
 import logging
 import os
 import pathlib
-import socketserver
+import ssl
 import subprocess
 import sys
 import threading
+import urllib.parse
 
 # setup logging
 logger = logging.getLogger(__name__)
@@ -18,6 +21,32 @@ logger.addHandler(handler)
 # setup files config
 lock_file_path = "reset.lock"
 fail_file_path = "fail_message"
+reset_token = ""
+allowed_sources = []
+
+
+def load_secret(path: str) -> str:
+    with open(path, 'r') as f:
+        secret = f.read().strip()
+    if not secret:
+        raise ValueError(f"Secret file {path} is empty")
+    return secret
+
+
+def parse_allowed_sources(raw_sources: str):
+    sources = []
+    for raw_source in raw_sources.split(','):
+        raw_source = raw_source.strip()
+        if raw_source:
+            sources.append(ipaddress.ip_network(raw_source, strict=False))
+    if not sources:
+        raise ValueError("At least one allowed source CIDR is required")
+    return sources
+
+
+def client_allowed(client_ip: str) -> bool:
+    ip_address = ipaddress.ip_address(client_ip)
+    return any(ip_address in network for network in allowed_sources)
 
 def write_fail_message(message: str):
     with open(fail_file_path, 'w') as f:
@@ -65,55 +94,75 @@ def initiate_reset():
 
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
+    def send_text_response(self, status_code: int, body: str):
+        self.send_response(status_code)
+        self.send_header('Content-type', 'text/plain')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body.encode())
+
+    def request_authorized(self) -> bool:
+        client_ip = self.client_address[0]
+        if not client_allowed(client_ip):
+            logger.warning(f"Rejected request from non-management source {client_ip}")
+            self.send_text_response(403, "Forbidden")
+            return False
+
+        expected_header = f"Bearer {reset_token}"
+        received_header = self.headers.get('Authorization', '')
+        if not hmac.compare_digest(received_header, expected_header):
+            logger.warning(f"Rejected unauthenticated request from {client_ip}")
+            self.send_response(401)
+            self.send_header('Content-type', 'text/plain')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('WWW-Authenticate', 'Bearer')
+            self.end_headers()
+            self.wfile.write(b"Unauthorized")
+            return False
+
+        return True
+
     def do_GET(self):
-        parsed_path = self.path
+        parsed_path = urllib.parse.urlsplit(self.path).path
         logger.info(f"{parsed_path} request received")
+        if not self.request_authorized():
+            return
+
         match parsed_path:
             case '/reset':
                 if initiate_reset():
                     logger.info("Running reset script...")
-                    self.send_response(200)  # OK
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(f'Reset initiated, check status <a href="/status">here</a>'.encode())
+                    self.send_text_response(200, "Reset initiated, check /status")
                 else:
                     logger.warning("Reset already running.")
-                    self.send_response(202)  # Accepted
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(f'Reset already running, check status <a href="/status">here</a>'.encode())
+                    self.send_text_response(202, "Reset already running, check /status")
             case "/status":
                 fail_message = read_fail_message()
                 if reset_ongoing():
                     logger.info("Returning ongoing status")
-                    self.send_response(200)  # OK
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(f'Reset ongoing'.encode())
+                    self.send_text_response(200, "Reset ongoing")
                 elif fail_message:
                     logger.error("Returning error status")
-                    self.send_response(500)  # Internal Server Error
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(f'Error executing reset script:<p>{fail_message}</p>'.encode())
+                    self.send_text_response(500, f"Error executing reset script: {fail_message}")
                 else:
                     logger.info("Returning ready status")
-                    self.send_response(200)  # OK
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(f'Ready for duty!'.encode())
+                    self.send_text_response(200, "Ready for duty!")
             case _:
                 logger.info("Wrong request")
-                self.send_response(404)  # Not Found
-                self.send_header('Content-type', 'text/html')
-                self.end_headers()
-                self.wfile.write(f'Endpoint not found'.encode())
+                self.send_text_response(404, "Endpoint not found")
 
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Start a simple HTTP server to execute a reset script.')
-parser.add_argument('--port', type=int, help='Port number the server will listen to')
+parser.add_argument('--host', default='127.0.0.1', help='Host address the server will bind to')
+parser.add_argument('--port', type=int, required=True, help='Port number the server will listen to')
+parser.add_argument('--allowed-sources', required=True, help='Comma-separated management source CIDRs allowed to call reset endpoints')
+parser.add_argument('--token-file', required=True, help='File containing the bearer token required for reset endpoints')
+parser.add_argument('--certfile', required=True, help='TLS certificate file for the reset server')
+parser.add_argument('--keyfile', required=True, help='TLS private key file for the reset server')
 args = parser.parse_args()
+reset_token = load_secret(args.token_file)
+allowed_sources = parse_allowed_sources(args.allowed_sources)
 
 # Clear fail and lock files
 write_fail_message("")
@@ -121,8 +170,13 @@ if reset_ongoing():
     os.remove(lock_file_path)
 
 # Run the server
-with http.server.ThreadingHTTPServer(('', args.port), CustomHandler) as httpd:
-    logger.info(f'Serving on port {args.port}...')
+with http.server.ThreadingHTTPServer((args.host, args.port), CustomHandler) as httpd:
+    tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
+    tls_context.load_cert_chain(certfile=args.certfile, keyfile=args.keyfile)
+    httpd.socket = tls_context.wrap_socket(httpd.socket, server_side=True)
+
+    logger.info(f'Serving HTTPS reset endpoint on {args.host}:{args.port} for {args.allowed_sources}...')
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -57,12 +57,38 @@ sudo bash 05_docker_patch_containers.sh
 sudo bash 06_serve_homepage.sh
 ```
 
-Optional: to start the reset server (automated full instance resets) run the following in a side tmux or screen terminal
+Optional: to start the reset server (automated full instance resets), first create the management-only credentials and TLS material:
+```bash
+sudo install -d -m 700 /etc/webarena
+openssl rand -hex 32 | sudo tee /etc/webarena/reset_token >/dev/null
+sudo chmod 600 /etc/webarena/reset_token
+sudo openssl req -x509 -newkey rsa:4096 -nodes \
+  -keyout /etc/webarena/reset.key \
+  -out /etc/webarena/reset.crt \
+  -days 365 \
+  -subj "/CN=${PUBLIC_HOSTNAME}"
+sudo chmod 600 /etc/webarena/reset.key
+```
+
+Expose the reset server only on the management network or to a specific automation host. Configure these environment variables before starting it:
+```bash
+export RESET_PORT=7777
+export RESET_BIND_HOST="<management-interface-ip>"
+export RESET_ALLOWED_SOURCES="<management-cidr-or-host-cidr>"
+export RESET_TOKEN_FILE="/etc/webarena/reset_token"
+export RESET_TLS_CERT="/etc/webarena/reset.crt"
+export RESET_TLS_KEY="/etc/webarena/reset.key"
+export RESET_TLS_CA_CERT="/etc/webarena/reset.crt"
+```
+
+Then run the reset server in a side tmux or screen terminal:
 ```bash
 sudo bash 07_serve_reset.sh
 ```
 
-Then you can trigger a full instance reset by accessing `http://${PUBLIC_HOSTNAME}:${RESET_PORT}/reset` check the instance status via `http://${PUBLIC_HOSTNAME}:${RESET_PORT}/reset`.
+The reset server listens with HTTPS, requires `Authorization: Bearer <token>`, and rejects clients outside `RESET_ALLOWED_SOURCES`. Keep TCP/${RESET_PORT} restricted in the external ACL or security group to the same management CIDR or authorized automation host; do not expose it to public client networks.
+
+Then you can trigger a full instance reset with `sudo -E bash reset.sh`, which calls `https://${RESET_HOST}:${RESET_PORT}/reset` and checks status with `https://${RESET_HOST}:${RESET_PORT}/status`.
 
 ## Safety check
 
@@ -72,4 +98,4 @@ Go to the homepage and click each link to make sure the websites are operational
 
 After an agent is evaluated on WebArena, a reset is required before another agent can be evaluated.
 
-Run scripts 02 to 06 again, or query the reset URL `http://${PUBLIC_HOSTNAME}:${RESET_PORT}/reset` if the reset server is running.
+Run scripts 02 to 06 again, or run `sudo -E bash reset.sh` if the reset server is running.
