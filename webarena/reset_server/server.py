@@ -78,11 +78,14 @@ def initiate_reset():
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def send_text_response(self, status_code: int, body: str):
+        body_bytes = body.encode()
         self.send_response(status_code)
         self.send_header('Content-type', 'text/plain')
+        self.send_header('Content-Length', str(len(body_bytes)))
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
-        self.wfile.write(body.encode())
+        self.wfile.write(body_bytes)
+        self.wfile.flush()
 
     def request_authorized(self) -> bool:
         client_ip = self.client_address[0]
@@ -90,12 +93,15 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
         received_header = self.headers.get('Authorization', '')
         if not hmac.compare_digest(received_header, expected_header):
             logger.warning(f"Rejected unauthenticated request from {client_ip}")
+            body_bytes = b"Unauthorized"
             self.send_response(401)
             self.send_header('Content-type', 'text/plain')
+            self.send_header('Content-Length', str(len(body_bytes)))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('WWW-Authenticate', 'Bearer')
             self.end_headers()
-            self.wfile.write(b"Unauthorized")
+            self.wfile.write(body_bytes)
+            self.wfile.flush()
             return False
 
         return True
