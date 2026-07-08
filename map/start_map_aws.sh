@@ -22,6 +22,27 @@ wait_for_apt_locks() {
     done
 }
 
+resolve_docker_pkg_conflicts() {
+    # Some AMIs ship Docker CE packages (containerd.io) which conflict with
+    # Ubuntu's docker.io dependency chain (containerd).
+    local held_packages
+    held_packages="$(apt-mark showhold || true)"
+    for pkg in containerd containerd.io docker.io docker-ce docker-ce-cli; do
+        if echo "$held_packages" | grep -qx "$pkg"; then
+            log "Removing apt hold on $pkg"
+            apt-mark unhold "$pkg" || true
+        fi
+    done
+
+    if dpkg -s containerd.io >/dev/null 2>&1; then
+        log "Detected containerd.io; removing Docker CE packages to install docker.io"
+        wait_for_apt_locks
+        apt-get remove -y containerd.io docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin || true
+        wait_for_apt_locks
+        apt-get autoremove -y || true
+    fi
+}
+
 log "Starting WebArena map server startup setup"
 
 # Configure APT with retry logic and better error handling.
@@ -50,7 +71,14 @@ fi
 wait_for_apt_locks
 apt-get update
 wait_for_apt_locks
-apt-get install -y docker.io curl wget htop unzip
+resolve_docker_pkg_conflicts
+if ! apt-get install -y docker.io curl wget htop unzip; then
+    log "Initial package install failed, trying to repair dependencies and retry"
+    wait_for_apt_locks
+    apt-get -f install -y || true
+    wait_for_apt_locks
+    apt-get install -y docker.io curl wget htop unzip
+fi
 
 # Enable and start Docker with retries.
 systemctl enable docker
