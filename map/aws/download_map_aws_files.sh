@@ -63,6 +63,45 @@ validate_archive() {
     return 1
 }
 
+install_aws_cli() {
+    local arch
+    local install_dir
+
+    if command -v aws >/dev/null 2>&1; then
+        return 0
+    fi
+
+    log "AWS CLI is not installed; installing AWS CLI v2"
+
+    if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
+        if command -v apt-get >/dev/null 2>&1; then
+            log "Installing AWS CLI dependencies: curl unzip"
+            apt-get update
+            apt-get install -y curl unzip
+        else
+            log "ERROR: curl and unzip are required to install AWS CLI v2"
+            return 1
+        fi
+    fi
+
+    case "$(uname -m)" in
+        x86_64) arch="x86_64" ;;
+        aarch64|arm64) arch="aarch64" ;;
+        *)
+            log "ERROR: Unsupported architecture for AWS CLI v2: $(uname -m)"
+            return 1
+            ;;
+    esac
+
+    install_dir="$(mktemp -d)"
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o "${install_dir}/awscliv2.zip"
+    unzip -q "${install_dir}/awscliv2.zip" -d "$install_dir"
+    "${install_dir}/aws/install" --update
+    rm -rf "$install_dir"
+
+    log "OK: AWS CLI installed"
+}
+
 download_file() {
     local file="$1"
     local destination="${OUTPUT_DIR}/${file}"
@@ -95,11 +134,7 @@ wait_for_download() {
 
 mkdir -p "$OUTPUT_DIR"
 
-if ! command -v aws >/dev/null 2>&1; then
-    log "ERROR: AWS CLI is required to download from s3://${BUCKET_NAME}"
-    log "Install it first, then rerun this script."
-    exit 1
-fi
+install_aws_cli
 
 log "Downloading WebArena map data archives to ${OUTPUT_DIR}"
 log "Existing archives will be overwritten by default"
