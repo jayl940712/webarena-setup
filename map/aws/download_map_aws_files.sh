@@ -49,21 +49,6 @@ download_with_aws() {
         "$destination"
 }
 
-download_with_http() {
-    local file="$1"
-    local destination="$2"
-    local url="https://${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/${file}"
-
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 5 --retry-delay 10 -o "$destination" "$url"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -q -O "$destination" "$url"
-    else
-        log "ERROR: aws, curl, or wget is required to download ${file}"
-        return 1
-    fi
-}
-
 validate_archive() {
     local file="$1"
     local path="${OUTPUT_DIR}/${file}"
@@ -92,12 +77,7 @@ download_file() {
     fi
 
     log "Downloading ${file} to ${destination}"
-    if command -v aws >/dev/null 2>&1; then
-        retry download_with_aws "$file" "$destination"
-    else
-        retry download_with_http "$file" "$destination"
-    fi
-
+    retry download_with_aws "$file" "$destination"
     validate_archive "$file"
 }
 
@@ -114,6 +94,12 @@ wait_for_download() {
 }
 
 mkdir -p "$OUTPUT_DIR"
+
+if ! command -v aws >/dev/null 2>&1; then
+    log "ERROR: AWS CLI is required to download from s3://${BUCKET_NAME}"
+    log "Install it first, then rerun this script."
+    exit 1
+fi
 
 log "Downloading WebArena map data archives to ${OUTPUT_DIR}"
 log "Existing archives will be overwritten by default"
