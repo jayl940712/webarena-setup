@@ -150,6 +150,14 @@
             </a>
             <p id="appDescription">Manual on using the admin portal</p>
         </div>
+
+        <div class="card" role="region" aria-label="Classifieds">
+            <img src="{{ url_for('static', filename='figures/classifieds.png') }}"  alt="Logo for Classifieds">
+            <a href="CLASSIFIEDS_URL">
+                <h2 id="appName">Classifieds</h2>
+            </a>
+            <p id="appDescription">A classifieds website for people to sell and buy things</p>
+        </div>
         <!-- Repeat the above card structure for each app -->
 
     </div>
