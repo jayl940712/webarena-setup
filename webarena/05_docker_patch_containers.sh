@@ -34,3 +34,6 @@ docker exec gitlab gitlab-ctl reconfigure
 
 # maps
 docker exec openstreetmap-website-web-1 bin/rails db:migrate RAILS_ENV=development
+
+# classifieds
+docker exec classifieds_db mysql -u root -ppassword osclass -e 'source docker-entrypoint-initdb.d/osclass_craigslist.sql'  # Populate DB with content

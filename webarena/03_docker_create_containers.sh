@@ -68,3 +68,11 @@ sed "${SED_INPLACE[@]}" "s|__OSMBikeSuffix__|${OSM_BIKE_SUFFIX}|g" ./app/assets/
 sed "${SED_INPLACE[@]}" "s|__OSMFootSuffix__|${OSM_FOOT_SUFFIX}|g" ./app/assets/javascripts/index/directions/fossgis_osrm.js
 
 docker compose create
+
+# classifieds docker set up
+cd ..
+cd classifieds_docker_compose/
+cp ../classifieds_docker-compose.yml.template docker-compose.yml
+sed -i "s|CLASSIFIEDS_PORT|${CLASSIFIEDS_PORT}|g" docker-compose.yml
+sed -i "s|CLASSIFIEDS_URL|${CLASSIFIEDS_URL}|g" docker-compose.yml
+docker compose create --build
