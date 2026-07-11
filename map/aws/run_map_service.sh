@@ -8,7 +8,7 @@ docker run --name nominatim --restart unless-stopped \
     --env=IMPORT_STYLE=extratags \
     --env=PBF_PATH=/nominatim/data/us-northeast-latest.osm.pbf \
     --env=IMPORT_WIKIPEDIA=/nominatim/data/wikimedia-importance.sql.gz \
-    --volume=/opt/osm_dump:/nominatim/data \
+    --volume=/opt/osm_dump/osm_dump:/nominatim/data \
     --volume=nominatim-data:/var/lib/postgresql/14/main \
     --volume=nominatim-flatnode:/nominatim/flatnode \
     -p 8085:8080 -d mediagis/nominatim:4.2 /app/start.sh
