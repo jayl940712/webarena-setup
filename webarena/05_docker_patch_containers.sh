@@ -13,6 +13,17 @@ docker exec forum sed -i \
   -e 's/^pm.max_spare_servers = .*/pm.max_spare_servers = 20/' \
   -e 's/^;pm.max_requests = .*/pm.max_requests = 500/' \
   /usr/local/etc/php-fpm.d/www.conf
+
+  # reddit - disable submission and comment rate limits
+docker exec forum sed -i \
+  -e '/@RateLimit.*entityClass=Submission::class/d' \
+  -e '/@RateLimit.*entityClass=Comment::class/d' \
+  /var/www/html/src/DataObject/SubmissionData.php \
+  /var/www/html/src/DataObject/CommentData.php
+docker exec forum chown -R www-data:www-data /var/www/html/var/cache
+docker exec forum chmod -R u+rwX /var/www/html/var/cache
+docker exec forum su -s /bin/sh www-data -c \
+  'cd /var/www/html && APP_ENV=prod APP_DEBUG=0 php bin/console cache:clear --env=prod'
 docker exec forum supervisorctl restart php-fpm
 
 # shopping + shopping admin
