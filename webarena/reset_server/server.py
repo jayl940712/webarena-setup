@@ -23,6 +23,38 @@ fail_file_path = "fail_message"
 reset_token = ""
 
 
+class TLSHandshakeHTTPServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(
+        self,
+        server_address,
+        RequestHandlerClass,
+        tls_context: ssl.SSLContext,
+        handshake_timeout: int,
+        request_timeout: int,
+    ):
+        super().__init__(server_address, RequestHandlerClass)
+        self.tls_context = tls_context
+        self.handshake_timeout = handshake_timeout
+        self.request_timeout = request_timeout
+
+    def process_request_thread(self, request, client_address):
+        try:
+            request.settimeout(self.handshake_timeout)
+            request = self.tls_context.wrap_socket(request, server_side=True)
+            request.settimeout(self.request_timeout)
+            self.finish_request(request, client_address)
+        except ssl.SSLError as e:
+            logger.warning(f"TLS handshake/request failed from {client_address[0]}: {e}")
+        except TimeoutError as e:
+            logger.warning(f"TLS handshake/request timed out from {client_address[0]}: {e}")
+        except Exception:
+            self.handle_error(request, client_address)
+        finally:
+            self.shutdown_request(request)
+
+
 def load_secret(path: str) -> str:
     with open(path, 'r') as f:
         secret = f.read().strip()
@@ -143,6 +175,8 @@ parser.add_argument('--port', type=int, required=True, help='Port number the ser
 parser.add_argument('--token-file', required=True, help='File containing the bearer token required for reset endpoints')
 parser.add_argument('--certfile', required=True, help='TLS certificate file for the reset server')
 parser.add_argument('--keyfile', required=True, help='TLS private key file for the reset server')
+parser.add_argument('--tls-handshake-timeout', type=int, default=5, help='Seconds to wait for a client TLS handshake')
+parser.add_argument('--request-timeout', type=int, default=60, help='Seconds to wait for HTTP request activity after TLS handshake')
 args = parser.parse_args()
 reset_token = load_secret(args.token_file)
 
@@ -152,11 +186,17 @@ if reset_ongoing():
     os.remove(lock_file_path)
 
 # Run the server
-with http.server.ThreadingHTTPServer((args.host, args.port), CustomHandler) as httpd:
-    tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
-    tls_context.load_cert_chain(certfile=args.certfile, keyfile=args.keyfile)
-    httpd.socket = tls_context.wrap_socket(httpd.socket, server_side=True)
+tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
+tls_context.load_cert_chain(certfile=args.certfile, keyfile=args.keyfile)
+
+with TLSHandshakeHTTPServer(
+    (args.host, args.port),
+    CustomHandler,
+    tls_context,
+    args.tls_handshake_timeout,
+    args.request_timeout,
+) as httpd:
 
     logger.info(f'Serving HTTPS reset endpoint on {args.host}:{args.port}...')
     try:
