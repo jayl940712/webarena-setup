@@ -22,9 +22,10 @@ docker exec forum sed -i \
   /var/www/html/src/DataObject/CommentData.php
 docker exec forum chown -R www-data:www-data /var/www/html/var/cache
 docker exec forum chmod -R u+rwX /var/www/html/var/cache
+docker exec forum supervisorctl stop php-fpm
 docker exec forum su -s /bin/sh www-data -c \
   'cd /var/www/html && APP_ENV=prod APP_DEBUG=0 php bin/console cache:clear --env=prod'
-docker exec forum supervisorctl restart php-fpm
+docker exec forum supervisorctl start php-fpm
 
 # shopping + shopping admin
 docker exec shopping /var/www/magento2/bin/magento setup:store-config:set --base-url="http://$PUBLIC_HOSTNAME:$SHOPPING_PORT" # no trailing /
